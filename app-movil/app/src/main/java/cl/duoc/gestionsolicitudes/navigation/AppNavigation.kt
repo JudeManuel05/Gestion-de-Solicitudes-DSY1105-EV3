@@ -6,19 +6,26 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
+import androidx.compose.ui.platform.LocalContext
+import android.app.Application
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
+import cl.duoc.gestionsolicitudes.ui.screen.IndicadoresScreen
 import cl.duoc.gestionsolicitudes.ui.screen.ListaSolicitudesScreen
 import cl.duoc.gestionsolicitudes.ui.screen.LoginScreen
 import cl.duoc.gestionsolicitudes.ui.screen.MenuScreen
 import cl.duoc.gestionsolicitudes.ui.screen.QrScannerScreen
 import cl.duoc.gestionsolicitudes.ui.screen.SolicitudFormScreen
+import cl.duoc.gestionsolicitudes.viewmodel.IndicadoresViewModel
 import cl.duoc.gestionsolicitudes.viewmodel.LoginViewModel
+import cl.duoc.gestionsolicitudes.viewmodel.appViewModelFactory
 import cl.duoc.gestionsolicitudes.viewmodel.QrViewModel
 import cl.duoc.gestionsolicitudes.viewmodel.SolicitudViewModel
 
@@ -28,6 +35,7 @@ object Rutas {
     const val MENU = "menu"
     const val LISTA = "lista"
     const val QR = "qr"
+    const val INDICADORES = "indicadores"
     const val FORMULARIO = "formulario/{id}"
     fun formulario(id: Long = 0L) = "formulario/$id" // 0 = nueva solicitud
 }
@@ -36,7 +44,8 @@ private const val DURACION = 350
 
 /**
  * Secuencia: Login -> Menú -> ListaSolicitudesScreen -> SolicitudFormScreen
- * Los ViewModel se crean aquí una sola vez y se comparten entre pantallas.
+ * Los ViewModel se crean aquí una sola vez (con la fábrica que les entrega
+ * sus repositorios) y se comparten entre pantallas.
  */
 @Composable
 fun AppNavigation(
@@ -44,10 +53,18 @@ fun AppNavigation(
     onRequestCameraPermission: () -> Unit
 ) {
     val navController = rememberNavController()
-    val loginViewModel: LoginViewModel = viewModel()
-    val solicitudViewModel: SolicitudViewModel = viewModel()
-    val qrViewModel: QrViewModel = viewModel()
+    val app = LocalContext.current.applicationContext as Application
+    val factory = remember { appViewModelFactory(app) }
+    val loginViewModel: LoginViewModel = viewModel(factory = factory)
+    val solicitudViewModel: SolicitudViewModel = viewModel(factory = factory)
+    val qrViewModel: QrViewModel = viewModel(factory = factory)
+    val indicadoresViewModel: IndicadoresViewModel = viewModel(factory = factory)
     val loginState by loginViewModel.uiState.collectAsState()
+
+    // El correo del usuario logueado se asocia a cada solicitud nueva
+    LaunchedEffect(loginState.usuarioCorreo) {
+        solicitudViewModel.configurarUsuario(loginState.usuarioCorreo)
+    }
 
     NavHost(
         navController = navController,
@@ -83,6 +100,7 @@ fun AppNavigation(
                 nombreUsuario = loginState.usuarioNombre,
                 onVerSolicitudes = { navController.navigate(Rutas.LISTA) },
                 onEscanearQr = { navController.navigate(Rutas.QR) },
+                onVerIndicadores = { navController.navigate(Rutas.INDICADORES) },
                 onCerrarSesion = {
                     loginViewModel.cerrarSesion()
                     navController.navigate(Rutas.LOGIN) {
@@ -133,6 +151,13 @@ fun AppNavigation(
                     qrViewModel.clearResult()
                     navController.popBackStack()
                 }
+            )
+        }
+
+        composable(Rutas.INDICADORES) {
+            IndicadoresScreen(
+                viewModel = indicadoresViewModel,
+                onVolver = { navController.popBackStack() }
             )
         }
     }

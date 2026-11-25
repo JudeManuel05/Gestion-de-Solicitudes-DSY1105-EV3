@@ -41,7 +41,8 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.livedata.observeAsState
-import androidx.compose.runtime.remember
+import androidx.compose.runtime.produceState
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -50,11 +51,17 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
-import cl.duoc.gestionsolicitudes.data.local.SolicitudEntity
+import cl.duoc.gestionsolicitudes.model.Solicitud
 import cl.duoc.gestionsolicitudes.utils.QrScanner
 import cl.duoc.gestionsolicitudes.viewmodel.QrViewModel
 
 private enum class PantallaQr { SIN_PERMISO, ESCANEANDO, RESULTADO }
+
+/** Resultado de buscar el código leído en el microservicio. */
+private sealed interface Busqueda {
+    data object Buscando : Busqueda
+    data class Lista(val solicitud: Solicitud?) : Busqueda
+}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -62,7 +69,7 @@ fun QrScannerScreen(
     viewModel: QrViewModel,
     hasCameraPermission: Boolean,
     onRequestPermission: () -> Unit,
-    buscarSolicitud: (String) -> SolicitudEntity?,
+    buscarSolicitud: suspend (String) -> Solicitud?,
     onAbrirSolicitud: (Long) -> Unit,
     onVolver: () -> Unit
 ) {
@@ -155,13 +162,23 @@ fun QrScannerScreen(
                     // 3) Resultado: se busca la solicitud con ese código
                     PantallaQr.RESULTADO -> {
                         val codigo = qrResult?.content.orEmpty()
-                        val solicitud = remember(codigo) { buscarSolicitud(codigo) }
-                        ResultadoQr(
-                            codigo = codigo,
-                            solicitud = solicitud,
-                            onAbrir = { solicitud?.let { onAbrirSolicitud(it.id) } },
-                            onEscanearOtro = viewModel::clearResult
-                        )
+                        // Consulta al microservicio: GET /api/solicitudes/codigo/{codigo}
+                        val busqueda by produceState<Busqueda>(Busqueda.Buscando, codigo) {
+                            value = Busqueda.Lista(buscarSolicitud(codigo))
+                        }
+                        when (val actual = busqueda) {
+                            is Busqueda.Buscando -> {
+                                CircularProgressIndicator()
+                                Spacer(Modifier.height(12.dp))
+                                Text("Buscando $codigo en el servidor...")
+                            }
+                            is Busqueda.Lista -> ResultadoQr(
+                                codigo = codigo,
+                                solicitud = actual.solicitud,
+                                onAbrir = { actual.solicitud?.let { onAbrirSolicitud(it.id) } },
+                                onEscanearOtro = viewModel::clearResult
+                            )
+                        }
                     }
                 }
             }
@@ -190,7 +207,7 @@ private fun MarcoGuia() {
 @Composable
 private fun ResultadoQr(
     codigo: String,
-    solicitud: SolicitudEntity?,
+    solicitud: Solicitud?,
     onAbrir: () -> Unit,
     onEscanearOtro: () -> Unit
 ) {

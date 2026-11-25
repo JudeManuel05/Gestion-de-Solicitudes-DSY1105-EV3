@@ -1,25 +1,32 @@
 package cl.duoc.gestionsolicitudes.data.repository
 
-import cl.duoc.gestionsolicitudes.data.local.SolicitudDao
-import cl.duoc.gestionsolicitudes.data.local.SolicitudEntity
-import java.util.UUID
-import kotlinx.coroutines.flow.Flow
+import cl.duoc.gestionsolicitudes.data.remote.api.SolicitudApi
+import cl.duoc.gestionsolicitudes.data.remote.dto.EstadoRequest
+import cl.duoc.gestionsolicitudes.data.remote.dto.SolicitudRequest
+import cl.duoc.gestionsolicitudes.data.remote.llamarApi
+import cl.duoc.gestionsolicitudes.model.Solicitud
 
 /**
- * Repository: única puerta de acceso a los datos de solicitudes.
- * El ViewModel no conoce Room; solo habla con esta clase.
+ * Repository: única puerta de acceso a las solicitudes.
+ * PERSISTENCIA REMOTA: cada operación viaja por HTTP al microservicio ms-solicitudes,
+ * que la guarda en su base de datos con JPA.
  */
-class SolicitudRepository(private val dao: SolicitudDao) {
+class SolicitudRepository(private val api: SolicitudApi) {
 
-    val solicitudes: Flow<List<SolicitudEntity>> = dao.obtenerTodas()
+    suspend fun listar(): Result<List<Solicitud>> = llamarApi { api.listar() }
 
-    suspend fun obtenerPorId(id: Long): SolicitudEntity? = dao.obtenerPorId(id)
+    suspend fun obtenerPorId(id: Long): Result<Solicitud> = llamarApi { api.obtenerPorId(id) }
 
-    suspend fun insertar(solicitud: SolicitudEntity): Long = dao.insertar(solicitud)
+    suspend fun obtenerPorCodigo(codigo: String): Result<Solicitud> =
+        llamarApi { api.obtenerPorCodigo(codigo.trim()) }
 
-    suspend fun actualizar(solicitud: SolicitudEntity) = dao.actualizar(solicitud)
+    suspend fun crear(request: SolicitudRequest): Result<Solicitud> = llamarApi { api.crear(request) }
 
-    /** Identificador único de seguimiento, por ejemplo SOL-3F9A1C2B. */
-    fun generarCodigo(): String =
-        "SOL-" + UUID.randomUUID().toString().substring(0, 8).uppercase()
+    suspend fun actualizar(id: Long, request: SolicitudRequest): Result<Solicitud> =
+        llamarApi { api.actualizar(id, request) }
+
+    suspend fun cambiarEstado(id: Long, estado: String): Result<Solicitud> =
+        llamarApi { api.cambiarEstado(id, EstadoRequest(estado)) }
+
+    suspend fun eliminar(id: Long): Result<Unit> = llamarApi { api.eliminar(id) }
 }

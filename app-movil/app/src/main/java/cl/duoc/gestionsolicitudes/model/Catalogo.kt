@@ -5,6 +5,9 @@ object Catalogo {
 
     const val ESTADO_INICIAL = "Recibida"
 
+    // Mismos estados que valida el microservicio (EstadoSolicitud.java)
+    val estados = listOf("Recibida", "En revisión", "En proceso", "Resuelta", "Cerrada")
+
     val categorias = listOf(
         "Desarrollo web",
         "Mantenimiento web",
