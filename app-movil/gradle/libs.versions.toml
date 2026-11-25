@@ -1,13 +1,16 @@
 [versions]
 agp = "8.7.3"
 kotlin = "2.0.21"
-ksp = "2.0.21-1.0.28"
 coreKtx = "1.15.0"
 activityCompose = "1.9.3"
 lifecycle = "2.8.7"
 composeBom = "2024.12.01"
 navigationCompose = "2.8.5"
-room = "2.6.1"
+retrofit = "2.11.0"
+okhttp = "4.12.0"
+junit = "4.13.2"
+mockk = "1.13.13"
+coroutinesTest = "1.8.1"
 camerax = "1.4.1"
 mlkitBarcode = "17.3.0"
 zxingCore = "3.5.3"
@@ -33,10 +36,16 @@ androidx-runtime-livedata = { group = "androidx.compose.runtime", name = "runtim
 # Navegación
 androidx-navigation-compose = { group = "androidx.navigation", name = "navigation-compose", version.ref = "navigationCompose" }
 
-# Room (persistencia local)
-androidx-room-runtime = { group = "androidx.room", name = "room-runtime", version.ref = "room" }
-androidx-room-ktx = { group = "androidx.room", name = "room-ktx", version.ref = "room" }
-androidx-room-compiler = { group = "androidx.room", name = "room-compiler", version.ref = "room" }
+# Retrofit + OkHttp (consumo de microservicios y API externa)
+retrofit = { group = "com.squareup.retrofit2", name = "retrofit", version.ref = "retrofit" }
+retrofit-converter-gson = { group = "com.squareup.retrofit2", name = "converter-gson", version.ref = "retrofit" }
+okhttp-logging = { group = "com.squareup.okhttp3", name = "logging-interceptor", version.ref = "okhttp" }
+
+# Pruebas unitarias
+junit = { group = "junit", name = "junit", version.ref = "junit" }
+mockk = { group = "io.mockk", name = "mockk", version.ref = "mockk" }
+kotlinx-coroutines-test = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-test", version.ref = "coroutinesTest" }
+okhttp-mockwebserver = { group = "com.squareup.okhttp3", name = "mockwebserver", version.ref = "okhttp" }
 
 # CameraX + ML Kit + ZXing (cámara y códigos QR)
 androidx-camera-core = { group = "androidx.camera", name = "camera-core", version.ref = "camerax" }
@@ -53,4 +62,3 @@ coil-compose = { group = "io.coil-kt", name = "coil-compose", version.ref = "coi
 android-application = { id = "com.android.application", version.ref = "agp" }
 kotlin-android = { id = "org.jetbrains.kotlin.android", version.ref = "kotlin" }
 kotlin-compose = { id = "org.jetbrains.kotlin.plugin.compose", version.ref = "kotlin" }
-ksp = { id = "com.google.devtools.ksp", version.ref = "ksp" }

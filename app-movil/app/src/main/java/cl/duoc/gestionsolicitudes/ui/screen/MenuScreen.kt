@@ -18,6 +18,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ListAlt
 import androidx.compose.material.icons.automirrored.filled.Logout
 import androidx.compose.material.icons.filled.QrCodeScanner
+import androidx.compose.material.icons.filled.ShowChart
 import androidx.compose.material3.Card
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -41,6 +42,7 @@ fun MenuScreen(
     nombreUsuario: String,
     onVerSolicitudes: () -> Unit,
     onEscanearQr: () -> Unit,
+    onVerIndicadores: () -> Unit,
     onCerrarSesion: () -> Unit
 ) {
     // Activa la animación de entrada de las opciones
@@ -83,6 +85,18 @@ fun MenuScreen(
                     titulo = "Escanear código QR",
                     descripcion = "Consulta una solicitud con la cámara",
                     onClick = onEscanearQr
+                )
+            }
+            AnimatedVisibility(
+                visible = visible,
+                enter = fadeIn(tween(400, delayMillis = 300)) +
+                        slideInVertically(tween(400, delayMillis = 300)) { it / 2 }
+            ) {
+                OpcionMenu(
+                    icono = Icons.Filled.ShowChart,
+                    titulo = "Indicadores económicos",
+                    descripcion = "UF, dólar, euro y UTM del día (API externa)",
+                    onClick = onVerIndicadores
                 )
             }
 

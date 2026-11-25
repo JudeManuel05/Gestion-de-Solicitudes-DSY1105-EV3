@@ -32,10 +32,16 @@ import androidx.compose.material.icons.filled.Category
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.Error
+import androidx.compose.material.icons.filled.Flag
+import androidx.compose.material.icons.filled.DeleteForever
+import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material.icons.filled.PhotoCamera
 import androidx.compose.material.icons.filled.Save
 import androidx.compose.material.icons.filled.Title
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.Card
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenuItem
@@ -100,13 +106,34 @@ fun SolicitudFormScreen(
         }
     }
 
-    // Cuando el ViewModel confirma el guardado: aviso + volver a la lista
-    LaunchedEffect(estado.guardadoExitosamente) {
-        if (estado.guardadoExitosamente) {
-            Toast.makeText(context, "Solicitud ${estado.codigo} guardada", Toast.LENGTH_SHORT).show()
+    // Cuando el ViewModel confirma el guardado o eliminado: aviso + volver a la lista
+    LaunchedEffect(estado.guardadoExitosamente, estado.eliminadoExitosamente) {
+        if (estado.guardadoExitosamente || estado.eliminadoExitosamente) {
+            val accion = if (estado.eliminadoExitosamente) "eliminada" else "guardada"
+            Toast.makeText(context, "Solicitud ${estado.codigo} $accion", Toast.LENGTH_SHORT).show()
             viewModel.onGuardadoConsumido()
             onGuardado()
         }
+    }
+
+    // Diálogo de confirmación antes de eliminar
+    var confirmarEliminar by remember { mutableStateOf(false) }
+    if (confirmarEliminar) {
+        AlertDialog(
+            onDismissRequest = { confirmarEliminar = false },
+            icon = { Icon(Icons.Filled.DeleteForever, contentDescription = null) },
+            title = { Text("¿Eliminar solicitud?") },
+            text = { Text("La solicitud ${estado.codigo} se borrará del servidor. Esta acción no se puede deshacer.") },
+            confirmButton = {
+                TextButton(onClick = {
+                    confirmarEliminar = false
+                    viewModel.eliminar()
+                }) { Text("Eliminar", color = MaterialTheme.colorScheme.error) }
+            },
+            dismissButton = {
+                TextButton(onClick = { confirmarEliminar = false }) { Text("Cancelar") }
+            }
+        )
     }
 
     // Recurso nativo: la app de cámara guarda la foto en la Uri que le entregamos
@@ -130,6 +157,14 @@ fun SolicitudFormScreen(
                     IconButton(onClick = onVolver) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Volver")
                     }
+                },
+                actions = {
+                    // Solo se puede eliminar una solicitud que ya existe en el servidor
+                    if (estado.esEdicion) {
+                        IconButton(onClick = { confirmarEliminar = true }, enabled = !estado.guardando) {
+                            Icon(Icons.Filled.Delete, contentDescription = "Eliminar solicitud")
+                        }
+                    }
                 }
             )
         }
@@ -142,6 +177,24 @@ fun SolicitudFormScreen(
                 .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(4.dp)
         ) {
+            if (estado.cargando) {
+                LinearProgressIndicator(Modifier.fillMaxWidth())
+            }
+
+            // Error que respondió el microservicio (o falta de conexión)
+            AnimatedVisibility(visible = estado.mensajeError != null) {
+                Card(
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer),
+                    modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp)
+                ) {
+                    Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Filled.Warning, contentDescription = null, tint = MaterialTheme.colorScheme.onErrorContainer)
+                        Spacer(Modifier.width(8.dp))
+                        Text(estado.mensajeError ?: "", color = MaterialTheme.colorScheme.onErrorContainer)
+                    }
+                }
+            }
+
             // Datos de seguimiento (solo al editar): código, estado, fecha y QR
             AnimatedVisibility(visible = estado.esEdicion && estado.codigo.isNotBlank()) {
                 TarjetaSeguimiento(
@@ -180,6 +233,11 @@ fun SolicitudFormScreen(
                 icono = Icons.Filled.Build,
                 error = estado.servicioError
             )
+
+            // Al editar se puede cambiar el estado (PATCH /api/solicitudes/{id}/estado)
+            if (estado.esEdicion) {
+                SelectorEstado(seleccion = estado.estado, onSeleccion = viewModel::onEstadoChange)
+            }
 
             // Evidencia fotográfica ficticia
             Card(modifier = Modifier.fillMaxWidth().animateContentSize()) {
@@ -290,6 +348,38 @@ private fun SelectorCategoria(
         )
         ExposedDropdownMenu(expanded = expandido, onDismissRequest = { expandido = false }) {
             Catalogo.categorias.forEach { opcion ->
+                DropdownMenuItem(
+                    text = { Text(opcion) },
+                    onClick = {
+                        onSeleccion(opcion)
+                        expandido = false
+                    }
+                )
+            }
+        }
+    }
+}
+
+/** Lista desplegable con los estados válidos de una solicitud. */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun SelectorEstado(seleccion: String, onSeleccion: (String) -> Unit) {
+    var expandido by remember { mutableStateOf(false) }
+    ExposedDropdownMenuBox(expanded = expandido, onExpandedChange = { expandido = it }) {
+        OutlinedTextField(
+            value = seleccion,
+            onValueChange = {},
+            readOnly = true,
+            label = { Text("Estado de la solicitud") },
+            leadingIcon = { Icon(Icons.Filled.Flag, contentDescription = null) },
+            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expandido) },
+            supportingText = { Text("Se guarda en el microservicio al presionar Guardar") },
+            modifier = Modifier
+                .menuAnchor(MenuAnchorType.PrimaryNotEditable)
+                .fillMaxWidth()
+        )
+        ExposedDropdownMenu(expanded = expandido, onDismissRequest = { expandido = false }) {
+            Catalogo.estados.forEach { opcion ->
                 DropdownMenuItem(
                     text = { Text(opcion) },
                     onClick = {

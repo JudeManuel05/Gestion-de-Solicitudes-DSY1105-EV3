@@ -1,15 +1,16 @@
 package cl.duoc.gestionsolicitudes.data.repository
 
-import cl.duoc.gestionsolicitudes.model.Usuario
+import cl.duoc.gestionsolicitudes.data.remote.api.UsuarioApi
+import cl.duoc.gestionsolicitudes.data.remote.dto.LoginRequest
+import cl.duoc.gestionsolicitudes.data.remote.dto.UsuarioDto
+import cl.duoc.gestionsolicitudes.data.remote.llamarApi
 
-/** Cuentas ficticias de prueba (no se usan datos ni credenciales reales). */
-class UsuarioRepository {
+/**
+ * Repository de usuarios: el ViewModel no sabe que existe Retrofit,
+ * solo pide "autenticar" y recibe un Result (éxito o error).
+ */
+class UsuarioRepository(private val api: UsuarioApi) {
 
-    private val usuarios = listOf(
-        Usuario(nombre = "Cliente Demo", correo = "cliente@demo.cl", clave = "demo123"),
-        Usuario(nombre = "Coordinador Demo", correo = "admin@demo.cl", clave = "demo123")
-    )
-
-    fun autenticar(correo: String, clave: String): Usuario? =
-        usuarios.find { it.correo.equals(correo.trim(), ignoreCase = true) && it.clave == clave }
+    suspend fun autenticar(correo: String, clave: String): Result<UsuarioDto> =
+        llamarApi { api.login(LoginRequest(correo.trim(), clave)) }
 }

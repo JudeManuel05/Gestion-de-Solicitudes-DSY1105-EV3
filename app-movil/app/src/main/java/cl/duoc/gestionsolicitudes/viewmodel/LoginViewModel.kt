@@ -4,16 +4,14 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import cl.duoc.gestionsolicitudes.data.repository.UsuarioRepository
 import cl.duoc.gestionsolicitudes.model.LoginUiState
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
-class LoginViewModel : ViewModel() {
-
-    private val repository = UsuarioRepository()
+/** El repositorio llega por constructor: en las pruebas se reemplaza por un mock. */
+class LoginViewModel(private val repository: UsuarioRepository) : ViewModel() {
 
     // Privado y mutable dentro del ViewModel; público y de solo lectura para la View
     private val _uiState = MutableStateFlow(LoginUiState())
@@ -44,19 +42,26 @@ class LoginViewModel : ViewModel() {
         return correoError == null && claveError == null
     }
 
+    /** Valida localmente y luego consulta al microservicio ms-usuarios (POST /api/usuarios/login). */
     fun iniciarSesion() {
         if (!validarFormulario()) return
         viewModelScope.launch {
             _uiState.update { it.copy(cargando = true, mensajeError = null) }
-            delay(700) // simula la verificación de la cuenta
-            val usuario = repository.autenticar(_uiState.value.correo, _uiState.value.clave)
-            _uiState.update {
-                if (usuario != null) {
-                    it.copy(cargando = false, loginExitoso = true, usuarioNombre = usuario.nombre)
-                } else {
-                    it.copy(cargando = false, mensajeError = "Correo o contraseña incorrectos")
+            repository.autenticar(_uiState.value.correo, _uiState.value.clave)
+                .onSuccess { usuario ->
+                    _uiState.update {
+                        it.copy(
+                            cargando = false,
+                            loginExitoso = true,
+                            usuarioNombre = usuario.nombre,
+                            usuarioCorreo = usuario.correo,
+                            usuarioRol = usuario.rol
+                        )
+                    }
                 }
-            }
+                .onFailure { error ->
+                    _uiState.update { it.copy(cargando = false, mensajeError = error.message) }
+                }
         }
     }
 

@@ -2,7 +2,7 @@ package cl.duoc.gestionsolicitudes.model
 
 /**
  * Estado del formulario de solicitud (lo que se está escribiendo + errores).
- * No es la tabla de la BD: la tabla es SolicitudEntity.
+ * No es lo que guarda el servidor: eso es el modelo Solicitud (JSON del microservicio).
  */
 data class SolicitudUiState(
     val id: Long = 0,                 // 0 = solicitud nueva
@@ -20,8 +20,13 @@ data class SolicitudUiState(
     val categoriaError: String? = null,
     val servicioError: String? = null,
 
+    val estadoOriginal: String = Catalogo.ESTADO_INICIAL, // para saber si el estado cambió
+
+    val cargando: Boolean = false,
     val guardando: Boolean = false,
-    val guardadoExitosamente: Boolean = false
+    val guardadoExitosamente: Boolean = false,
+    val eliminadoExitosamente: Boolean = false,
+    val mensajeError: String? = null             // error que responde el microservicio
 ) {
     val esEdicion: Boolean get() = id != 0L
 
