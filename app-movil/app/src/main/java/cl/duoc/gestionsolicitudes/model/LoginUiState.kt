@@ -9,5 +9,7 @@ data class LoginUiState(
     val mensajeError: String? = null,
     val cargando: Boolean = false,
     val loginExitoso: Boolean = false,
-    val usuarioNombre: String = ""
+    val usuarioNombre: String = "",
+    val usuarioCorreo: String = "",
+    val usuarioRol: String = ""
 )

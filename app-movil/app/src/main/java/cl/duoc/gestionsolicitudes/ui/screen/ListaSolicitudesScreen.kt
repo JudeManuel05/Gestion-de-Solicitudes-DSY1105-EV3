@@ -24,7 +24,11 @@ import androidx.compose.material.icons.filled.Category
 import androidx.compose.material.icons.filled.Inbox
 import androidx.compose.material.icons.filled.PhotoCamera
 import androidx.compose.material.icons.filled.QrCodeScanner
+import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.CloudOff
+import androidx.compose.material3.Button
 import androidx.compose.material3.Card
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.Icon
@@ -34,6 +38,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
@@ -41,7 +46,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import cl.duoc.gestionsolicitudes.data.local.SolicitudEntity
+import cl.duoc.gestionsolicitudes.model.Solicitud
 import cl.duoc.gestionsolicitudes.utils.formatearFecha
 import cl.duoc.gestionsolicitudes.viewmodel.SolicitudViewModel
 
@@ -54,8 +59,12 @@ fun ListaSolicitudesScreen(
     onEscanearQr: () -> Unit,
     onVolver: () -> Unit
 ) {
-    // Se recolecta el Flow de Room: al guardar o editar, la lista se actualiza sola
-    val solicitudes by viewModel.solicitudes.collectAsState()
+    // Estado de la lista que entrega el ViewModel (datos del microservicio ms-solicitudes)
+    val lista by viewModel.lista.collectAsState()
+    val solicitudes = lista.solicitudes
+
+    // Al entrar a la pantalla se piden las solicitudes: GET /api/solicitudes
+    LaunchedEffect(Unit) { viewModel.cargarSolicitudes() }
 
     Scaffold(
         topBar = {
@@ -67,6 +76,9 @@ fun ListaSolicitudesScreen(
                     }
                 },
                 actions = {
+                    IconButton(onClick = viewModel::cargarSolicitudes) {
+                        Icon(Icons.Filled.Refresh, contentDescription = "Actualizar")
+                    }
                     IconButton(onClick = onEscanearQr) {
                         Icon(Icons.Filled.QrCodeScanner, contentDescription = "Escanear QR")
                     }
@@ -86,9 +98,34 @@ fun ListaSolicitudesScreen(
                 .fillMaxSize()
                 .padding(padding)
         ) {
+            if (lista.cargando) {
+                LinearProgressIndicator(Modifier.fillMaxWidth().align(Alignment.TopCenter))
+            }
+
+            // Error de conexión con el microservicio
+            AnimatedVisibility(
+                visible = lista.error != null && solicitudes.isEmpty(),
+                enter = fadeIn(),
+                exit = fadeOut(),
+                modifier = Modifier.align(Alignment.Center).padding(24.dp)
+            ) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Icon(
+                        Icons.Filled.CloudOff,
+                        contentDescription = null,
+                        modifier = Modifier.size(64.dp),
+                        tint = MaterialTheme.colorScheme.error
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    Text(lista.error ?: "", color = MaterialTheme.colorScheme.error)
+                    Spacer(Modifier.height(8.dp))
+                    Button(onClick = viewModel::cargarSolicitudes) { Text("Reintentar") }
+                }
+            }
+
             // Estado vacío
             AnimatedVisibility(
-                visible = solicitudes.isEmpty(),
+                visible = solicitudes.isEmpty() && !lista.cargando && lista.error == null,
                 enter = fadeIn(),
                 exit = fadeOut(),
                 modifier = Modifier.align(Alignment.Center)
@@ -129,7 +166,7 @@ fun ListaSolicitudesScreen(
 
 @Composable
 private fun SolicitudCard(
-    solicitud: SolicitudEntity,
+    solicitud: Solicitud,
     onClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {

@@ -1,60 +1,78 @@
 package cl.duoc.gestionsolicitudes.viewmodel
 
-import android.app.Application
-import androidx.lifecycle.AndroidViewModel
+import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import cl.duoc.gestionsolicitudes.data.local.AppDatabase
-import cl.duoc.gestionsolicitudes.data.local.SolicitudEntity
+import cl.duoc.gestionsolicitudes.data.remote.dto.SolicitudRequest
 import cl.duoc.gestionsolicitudes.data.repository.SolicitudRepository
-import cl.duoc.gestionsolicitudes.model.Catalogo
+import cl.duoc.gestionsolicitudes.model.ListaUiState
+import cl.duoc.gestionsolicitudes.model.Solicitud
 import cl.duoc.gestionsolicitudes.model.SolicitudUiState
-import cl.duoc.gestionsolicitudes.utils.NotificationHelper
 import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
 /**
- * ViewModel del módulo de solicitudes. Lo comparten ListaSolicitudesScreen y SolicitudFormScreen.
- * View -> ViewModel -> Repository -> DAO -> Room
+ * ViewModel del módulo de solicitudes (lista + formulario).
+ * View -> ViewModel -> Repository -> Retrofit -> ms-solicitudes -> Base de datos
+ *
+ * @param notificar función que muestra una notificación local. Se recibe por
+ * constructor para no depender de Android y poder probar el ViewModel con JUnit.
  */
-class SolicitudViewModel(application: Application) : AndroidViewModel(application) {
+class SolicitudViewModel(
+    private val repository: SolicitudRepository,
+    private val notificar: (titulo: String, mensaje: String) -> Unit = { _, _ -> }
+) : ViewModel() {
 
-    private val repository = SolicitudRepository(
-        AppDatabase.getDatabase(application).solicitudDao()
-    )
+    // Correo del usuario que inició sesión (se guarda en cada solicitud nueva)
+    private var correoUsuario: String? = null
 
-    // Lista reactiva: cada cambio en Room llega solo a la pantalla de lista
-    val solicitudes: StateFlow<List<SolicitudEntity>> = repository.solicitudes
-        .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+    private val _lista = MutableStateFlow(ListaUiState())
+    val lista: StateFlow<ListaUiState> = _lista.asStateFlow()
 
-    // Estado del formulario
     private val _uiState = MutableStateFlow(SolicitudUiState())
     val uiState: StateFlow<SolicitudUiState> = _uiState.asStateFlow()
 
-    /** id = 0 prepara un formulario vacío; otro id carga la solicitud desde Room para editarla. */
+    fun configurarUsuario(correo: String) {
+        correoUsuario = correo.ifBlank { null }
+    }
+
+    // ---------- LISTA (GET /api/solicitudes) ----------
+    fun cargarSolicitudes() {
+        viewModelScope.launch {
+            _lista.update { it.copy(cargando = true, error = null) }
+            repository.listar()
+                .onSuccess { datos -> _lista.update { ListaUiState(solicitudes = datos) } }
+                .onFailure { e -> _lista.update { it.copy(cargando = false, error = e.message) } }
+        }
+    }
+
+    // ---------- FORMULARIO ----------
+    /** id = 0 prepara un formulario vacío; otro id trae la solicitud desde el microservicio. */
     fun cargarSolicitud(id: Long) {
         if (id == 0L) {
             _uiState.value = SolicitudUiState()
             return
         }
         viewModelScope.launch {
-            repository.obtenerPorId(id)?.let { s ->
-                _uiState.value = SolicitudUiState(
-                    id = s.id,
-                    codigo = s.codigo,
-                    titulo = s.titulo,
-                    descripcion = s.descripcion,
-                    categoria = s.categoria,
-                    servicio = s.servicio,
-                    evidenciaUri = s.evidenciaUri,
-                    estado = s.estado,
-                    fechaCreacion = s.fechaCreacion
-                )
-            }
+            _uiState.value = SolicitudUiState(id = id, cargando = true)
+            repository.obtenerPorId(id)
+                .onSuccess { s ->
+                    _uiState.value = SolicitudUiState(
+                        id = s.id,
+                        codigo = s.codigo,
+                        titulo = s.titulo,
+                        descripcion = s.descripcion,
+                        categoria = s.categoria,
+                        servicio = s.servicio.orEmpty(),
+                        evidenciaUri = s.evidenciaUri,
+                        estado = s.estado,
+                        estadoOriginal = s.estado,
+                        fechaCreacion = s.fechaCreacion
+                    )
+                }
+                .onFailure { e -> _uiState.update { it.copy(cargando = false, mensajeError = e.message) } }
         }
     }
 
@@ -75,12 +93,20 @@ class SolicitudViewModel(application: Application) : AndroidViewModel(applicatio
         _uiState.update { it.copy(servicio = valor, servicioError = null) }
     }
 
+    fun onEstadoChange(valor: String) {
+        _uiState.update { it.copy(estado = valor) }
+    }
+
     fun onEvidenciaCapturada(uri: String) {
         _uiState.update { it.copy(evidenciaUri = uri) }
     }
 
     fun quitarEvidencia() {
         _uiState.update { it.copy(evidenciaUri = null) }
+    }
+
+    fun limpiarError() {
+        _uiState.update { it.copy(mensajeError = null) }
     }
 
     // REGLAS DEL NEGOCIO: validación centralizada, la pantalla solo muestra los errores
@@ -112,66 +138,69 @@ class SolicitudViewModel(application: Application) : AndroidViewModel(applicatio
         return listOf(tituloError, descripcionError, categoriaError, servicioError).all { it == null }
     }
 
+    /** INSERTAR (POST) o ACTUALIZAR (PUT + PATCH de estado) en el microservicio. */
     fun guardar() {
         if (!validarFormulario()) return
         viewModelScope.launch {
-            _uiState.update { it.copy(guardando = true) }
+            _uiState.update { it.copy(guardando = true, mensajeError = null) }
             val estado = _uiState.value
-            val ahora = System.currentTimeMillis()
+            val request = SolicitudRequest(
+                titulo = estado.titulo.trim(),
+                descripcion = estado.descripcion.trim(),
+                categoria = estado.categoria,
+                servicio = estado.servicio.trim(),
+                evidenciaUri = estado.evidenciaUri,
+                correoCliente = correoUsuario
+            )
 
-            if (!estado.esEdicion) {
-                // Nueva solicitud: código único, fecha/hora y estado inicial "Recibida"
-                val nueva = SolicitudEntity(
-                    codigo = repository.generarCodigo(),
-                    titulo = estado.titulo.trim(),
-                    descripcion = estado.descripcion.trim(),
-                    categoria = estado.categoria,
-                    servicio = estado.servicio.trim(),
-                    evidenciaUri = estado.evidenciaUri,
-                    estado = Catalogo.ESTADO_INICIAL,
-                    fechaCreacion = ahora,
-                    fechaActualizacion = ahora
-                )
-                repository.insertar(nueva)
-                NotificationHelper.mostrar(
-                    getApplication<Application>(),
-                    "Solicitud ${nueva.codigo} recibida",
-                    nueva.titulo
-                )
-                _uiState.update { it.copy(codigo = nueva.codigo, guardando = false, guardadoExitosamente = true) }
+            val resultado = if (!estado.esEdicion) {
+                repository.crear(request)
             } else {
-                // Edición: se modifican solo los datos básicos y la fecha de actualización
-                val original = repository.obtenerPorId(estado.id)
-                if (original == null) {
-                    _uiState.update { it.copy(guardando = false) }
-                    return@launch
+                repository.actualizar(estado.id, request).mapCatching { actualizada ->
+                    // Si el usuario cambió el estado, se usa el endpoint PATCH /estado
+                    if (estado.estado != estado.estadoOriginal) {
+                        repository.cambiarEstado(estado.id, estado.estado).getOrThrow()
+                    } else actualizada
                 }
-                repository.actualizar(
-                    original.copy(
-                        titulo = estado.titulo.trim(),
-                        descripcion = estado.descripcion.trim(),
-                        categoria = estado.categoria,
-                        servicio = estado.servicio.trim(),
-                        evidenciaUri = estado.evidenciaUri,
-                        fechaActualizacion = ahora
-                    )
-                )
-                NotificationHelper.mostrar(
-                    getApplication<Application>(),
-                    "Solicitud ${original.codigo} actualizada",
-                    estado.titulo.trim()
-                )
-                _uiState.update { it.copy(guardando = false, guardadoExitosamente = true) }
             }
+
+            resultado
+                .onSuccess { guardada ->
+                    val accion = if (estado.esEdicion) "actualizada" else "recibida"
+                    notificar("Solicitud ${guardada.codigo} $accion", guardada.titulo)
+                    _uiState.update {
+                        it.copy(codigo = guardada.codigo, guardando = false, guardadoExitosamente = true)
+                    }
+                    cargarSolicitudes()
+                }
+                .onFailure { e ->
+                    _uiState.update { it.copy(guardando = false, mensajeError = e.message) }
+                }
         }
     }
 
-    /** La pantalla avisa que ya reaccionó al guardado (navegó atrás). */
-    fun onGuardadoConsumido() {
-        _uiState.update { it.copy(guardadoExitosamente = false) }
+    /** ELIMINAR (DELETE /api/solicitudes/{id}). */
+    fun eliminar() {
+        val estado = _uiState.value
+        if (!estado.esEdicion) return
+        viewModelScope.launch {
+            _uiState.update { it.copy(guardando = true, mensajeError = null) }
+            repository.eliminar(estado.id)
+                .onSuccess {
+                    notificar("Solicitud ${estado.codigo} eliminada", estado.titulo)
+                    _uiState.update { it.copy(guardando = false, eliminadoExitosamente = true) }
+                    cargarSolicitudes()
+                }
+                .onFailure { e -> _uiState.update { it.copy(guardando = false, mensajeError = e.message) } }
+        }
     }
 
-    /** Usado por el lector QR para encontrar una solicitud por su código. */
-    fun buscarPorCodigo(codigo: String): SolicitudEntity? =
-        solicitudes.value.find { it.codigo.equals(codigo.trim(), ignoreCase = true) }
+    /** La pantalla avisa que ya reaccionó al guardado/eliminado (navegó atrás). */
+    fun onGuardadoConsumido() {
+        _uiState.update { it.copy(guardadoExitosamente = false, eliminadoExitosamente = false) }
+    }
+
+    /** Usado por el lector QR: GET /api/solicitudes/codigo/{codigo}. null si no existe. */
+    suspend fun buscarPorCodigo(codigo: String): Solicitud? =
+        repository.obtenerPorCodigo(codigo).getOrNull()
 }
